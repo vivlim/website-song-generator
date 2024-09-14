@@ -1,4 +1,5 @@
 import { Interval, Note, Scale, Range, Key, Chord } from "tonal";
+import * as UI from "./ui";
 
 var compostInputData = window.performance.getEntries().map(function(e) {
   return {t: e.contentType, start: e.startTime, duration: e.duration, size: e.transferSize};
@@ -231,6 +232,11 @@ function quantize(inputData, tempoBpm, bucketsPerMeasure, numMeasures, key, arra
 
         }
     }
+
+    // use notes to return the end, too. ugh
+    notes.push({
+        end: measureDurationMs * numMeasures,
+    })
     return notes;
 }
 
@@ -246,6 +252,11 @@ window.compostState.arrangement = {
     };
 
 function playStep(tempoBpm, bucketsPerMeasure, numMeasures, keyName, arrangement, data) {
+    if (compostState.playing) {
+        console.log("already playing");
+        return;
+    }
+
     if (tempoBpm === undefined) tempoBpm = 80;
     if (bucketsPerMeasure === undefined) bucketsPerMeasure = 16;
     if (numMeasures === undefined) numMeasures = 4;
@@ -255,14 +266,39 @@ function playStep(tempoBpm, bucketsPerMeasure, numMeasures, keyName, arrangement
     // figure out where they are in time first
     var notes = quantize(data, tempoBpm, bucketsPerMeasure, numMeasures, Key.majorKey(keyName), arrangement);
 
+    var endTime = notes[notes.length - 1].end;
+
+    setTimeout(() => {
+        console.log("finished playStep.")
+        compostState.playing = false;
+    }, endTime)
+
+    compostState.playing = true;
+
+    let loopCheckbox = UI.getLoopCheckbox();
+
     for (let n of notes) {
-        //var startTime = d.start % compostState.loopAfter;
-        setTimeout(() => {startPlayingNote(n)}, n.start)
+        if (n.start === undefined) continue;
+        setTimeout(() => {
+            if (loopCheckbox.checked){
+                startPlayingNote(n);
+            }
+        }, n.start)
     }
 }
 window.compostState.playStep = playStep;
 window.compostState.quantize = quantize;
 window.pl = playStep;
 
+compostState.ui = UI.getUiElement();
+
+let loopCheckbox = UI.getLoopCheckbox();
+
+loopCheckbox.onchange = () => {
+    if (loopCheckbox.checked && !compostState.playing){
+        playStep();
+    }
+}
+
 //window.buckets = quantize(169, 16, Key.majorKey("C"), "pentatonic")
-playStep();
+//playStep();
