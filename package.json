@@ -1,0 +1,12 @@
+{
+  "name": "compost-maybe",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "tonal": "^6.2.0"
+  },
+  "devDependencies": {
+    "webpack": "^5.94.0",
+    "webpack-cli": "^5.1.4"
+  }
+}
