@@ -1,6 +1,5 @@
 import { Interval, Note, Scale, Range, Key, Chord } from "tonal";
 
-
 var compostInputData = window.performance.getEntries().map(function(e) {
   return {t: e.contentType, start: e.startTime, duration: e.duration, size: e.transferSize};
 }).filter(function(e){ return 't' in e && e.t !== "" && e.t !== undefined; }).toSorted(function(a, b) {return a.start - b.start});
@@ -77,23 +76,8 @@ function fitNoteToNearest(note, targetNotes){
 }
 
 
-function startPlayingData(d){
-    console.log("playing data " + d.start);
-    var osc = audioContext.createOscillator();
-    osc.connect(compostState.mainGainNode);
-    osc.type = "square";
-    var degree = d.size % 8 - 4;
-    var note = window.compostState.scaleDegrees(degree);
-    var freq = Note.freq(note);
-    console.log("mapped size " + d.size + " to degree " + degree + " to note " + note + " to freq " + freq);
-    osc.frequency.value = freq;
-    osc.start();
-    var duration = d.duration % compostState.loopAfter;
-    setTimeout(() => {stopPlayingData(d, osc)}, duration);
-}
-
 function startPlayingNote(n){
-    console.log(`playing ${n.note} at ${n.start} ${n.wave} - ${JSON.stringify(n.sourceData)}`);
+    console.log(`playing ${n.note} at ${n.start} for ${n.duration}ms ${n.wave} - ${JSON.stringify(n.sourceData)}`);
     var osc = audioContext.createOscillator();
     osc.connect(compostState.mainGainNode);
     osc.type = n.wave;
@@ -114,7 +98,7 @@ function stopOsc(osc){
     osc.stop()
 }
 
-function quantize(inputData, tempoBpm, bucketsPerMeasure, numMeasures, key){
+function quantize(inputData, tempoBpm, bucketsPerMeasure, numMeasures, key, arrangement){
     var beatsPerMillisecond = 60000 / tempoBpm;
     var measureDurationMs = beatsPerMillisecond * 4;
     var bucketDurationMs = measureDurationMs / bucketsPerMeasure;
@@ -134,89 +118,142 @@ function quantize(inputData, tempoBpm, bucketsPerMeasure, numMeasures, key){
         bucketsByDistance[0].bucket.items.push(d);
     }
 
+    let measures = [];
+    for (let i = 0; i < numMeasures; i++){
+        let firstBucket = i * bucketsPerMeasure;
+        let measureBuckets = [];
+        let measure = {
+            start: buckets[firstBucket].start,
+            buckets: measureBuckets,
+            itemCount: 0,
+        };
+        for (let j = firstBucket; j < firstBucket + bucketsPerMeasure; j++){
+            let bucket = structuredClone(buckets[j])
+            if (arrangement !== undefined){
+                bucket.items = sampleData(bucket.items, arrangement.sampleFactor[i % arrangement.sampleFactor.length])
+            }
+
+            measureBuckets.push(bucket);
+            measure.itemCount += bucket.items.length;
+        }
+        measures.push(measure);
+    }
+
+    if (arrangement !== undefined){
+        console.log(`rearranging measures to ${JSON.stringify(arrangement)}`)
+        let sourceMeasures = measures;
+        for (let i = 0; i < sourceMeasures.length; i++){
+            let measure = sourceMeasures[i];
+            for (let j = 0; j < measure.buckets; j++){
+                measure.buckets[j].items = sampleData(measure.buckets[j].items, arrangement.sampleFactor)
+            }
+        }
+        measures = [];
+        let measureNewstart = 0;
+        for (let a of arrangement.measureOrder){
+            let measure = structuredClone(sourceMeasures[a]);
+            if (measure === undefined){throw new Error(`arrangement requested out of bounds measure ${a} that doesn't exist: ${JSON.stringify(arrangement)}`)}
+            measure.start = measureNewstart;
+            measures.push(measure);
+            measureNewstart += measureDurationMs;
+        }
+    }
+
     var notes = [];
 
-    // process each time bucket one at a time
-    for (let i = 0; i < buckets.length; i++){
-        let dataByType = Map.groupBy(buckets[i].items, (d) => d.t );
+    // process each measure one at a time
+    for (let m = 0; m < measures.length; m++){
+        let measureBuckets = measures[m].buckets;
+        // process each time bucket one at a time
+        for (let i = 0; i < measureBuckets.length; i++){
+            let bucket = measureBuckets[i];
+            let realStart = measures[m].start + (bucketDurationMs * i);
+            let dataByType = Map.groupBy(bucket.items, (d) => d.t );
 
-        // nothing at this time.
-        if (dataByType.length == 0) continue;
+            // nothing at this time.
+            if (dataByType.length == 0) continue;
 
-        for (let contentType of dataByType.keys()){
-            var mapping = contentTypeMapping[contentType];
-            if (mapping === null) continue;
-            if (mapping === undefined) mapping = contentTypeMapping["default"];
+            for (let contentType of dataByType.keys()){
+                var mapping = contentTypeMapping[contentType];
+                if (mapping === null) continue;
+                if (mapping === undefined) mapping = contentTypeMapping["default"];
 
-            var dataInBucketWithContentType = dataByType.get(contentType);
-            if (dataInBucketWithContentType.length == 0) continue;
+                let dataInBucketWithContentType = dataByType.get(contentType);
+                if (dataInBucketWithContentType.length == 0) continue;
 
-            // Map the *first* size to a note only
-            let unmappedNote = Note.fromFreq(dataInBucketWithContentType[0].size * mapping.sizePitchFactor % mapping.pitchCap);
-            let octave = Note.octave(unmappedNote);
-            let fitNote = fitNoteToNearest(unmappedNote, key.scale.map((n) => `${n}${octave}`))
-            console.log(`Item size ${dataInBucketWithContentType[0].size} mapped to note ${fitNote} (before fit, was ${unmappedNote}`);
+                // Map the *first* size to a note only
+                let unmappedNote = Note.fromFreq(dataInBucketWithContentType[0].size * mapping.sizePitchFactor % mapping.pitchCap);
+                let octave = Note.octave(unmappedNote);
+                let fitNote = fitNoteToNearest(unmappedNote, key.scale.map((n) => `${n}${octave}`))
+                console.log(`Item size ${dataInBucketWithContentType[0].size} mapped to note ${fitNote} (before fit, was ${unmappedNote}`);
 
-            notes.push({
-                start: buckets[i].start,
-                //duration: dataInBucketWithContentType[0].duration * mapping.durationMultiplier % (measureDurationMs/2),
-                duration: 120,
-                note: fitNote,
-                sourceData: dataInBucketWithContentType[0],
-                wave: mapping.wave,
-            })
+                notes.push({
+                    start: realStart,
+                    duration: Math.min(dataInBucketWithContentType[0].duration * mapping.durationMultiplier, (bucketDurationMs/2)),
+                    //duration: 120,
+                    note: fitNote,
+                    sourceData: dataInBucketWithContentType[0],
+                    wave: mapping.wave,
+                })
 
-            if (dataInBucketWithContentType.length > 1) {
-                // find matching chord
-                let chordName = key.chords.filter((c) => c[0] === fitNote[0])[0];
-                let chordNotes = Chord.notes(chordName, fitNote);
+                if (dataInBucketWithContentType.length > 1) {
+                    // find matching chord
+                    let chordName = key.chords.filter((c) => c[0] === fitNote[0])[0];
+                    let chordNotes = Chord.notes(chordName, fitNote);
 
-                console.log(`Matched note ${fitNote[0]} to chord: ${chordName} notes ${JSON.stringify(chordNotes)}`)
-                for (let j = 1; j < dataInBucketWithContentType.length; j++) {
-                    notes.push({
-                        start: buckets[i].start,
-                        duration: dataInBucketWithContentType[j].duration * mapping.durationMultiplier % (measureDurationMs/2),
-                        note: chordNotes[j],
-                        sourceData: dataInBucketWithContentType[j],
-                        wave: mapping.wave,
-                    })
+                    console.log(`Matched note ${fitNote[0]} to chord: ${chordName} notes ${JSON.stringify(chordNotes)}`)
+                    for (let j = 1; j < dataInBucketWithContentType.length; j++) {
+                        notes.push({
+                            start: realStart,
+                            duration: Math.min(dataInBucketWithContentType[j].duration * mapping.durationMultiplier, (measureDurationMs/2)),
+                            note: chordNotes[j],
+                            sourceData: dataInBucketWithContentType[j],
+                            wave: mapping.wave,
+                        })
+                    }
                 }
+
+                /*
+                // random chord from the key
+                // or just the first for now
+                let chordName = key.chords[0];
+                var chord = Range.numeric([0, dataInBucketWithContentType.length]).map(Chord.steps(key.chords[0]))
+                for (let d of dataByType.get(contentType)){
+                    var index = Math.round(((d.size % mapping.byteSizeWrapPoint) / mapping.byteSizeWrapPoint) * 5);
+                    
+
+                }
+                notes.push(noteIndices);
+
+                */
+
             }
-
-            /*
-            // random chord from the key
-            // or just the first for now
-            let chordName = key.chords[0];
-            var chord = Range.numeric([0, dataInBucketWithContentType.length]).map(Chord.steps(key.chords[0]))
-            for (let d of dataByType.get(contentType)){
-                var index = Math.round(((d.size % mapping.byteSizeWrapPoint) / mapping.byteSizeWrapPoint) * 5);
-                
-
-            }
-            notes.push(noteIndices);
-
-            */
 
         }
-
     }
     return notes;
 }
 
 
-function sampleData(dataIn){
-    return dataIn.filter((d) => Math.random() < 0.5);
+function sampleData(dataIn, factor){
+    return dataIn.filter((d) => Math.random() < factor);
 }
 
+window.compostState.arrangement = {
+        measureOrder: [0, 1, 0, 2, 0, 1, 0, 3],
+        //sampleFactor: [0.5, 0.3, 0.5, 0.7],
+        sampleFactor: [1,1,1,1],
+    };
 
-function playStep(tempoBpm, bucketsPerMeasure, numMeasures, keyName, data) {
-    if (tempoBpm === undefined) tempoBpm = 129;
+function playStep(tempoBpm, bucketsPerMeasure, numMeasures, keyName, arrangement, data) {
+    if (tempoBpm === undefined) tempoBpm = 80;
     if (bucketsPerMeasure === undefined) bucketsPerMeasure = 16;
     if (numMeasures === undefined) numMeasures = 4;
-    if (keyName === undefined) keyName = "C";
-    if (data === undefined) data = sampleData(compostInputData);
+    if (keyName === undefined) keyName = "D";
+    if (arrangement === undefined) arrangement = window.compostState.arrangement;
+    if (data === undefined) data = compostInputData;
     // figure out where they are in time first
-    var notes = quantize(data, tempoBpm, bucketsPerMeasure, numMeasures, Key.majorKey(keyName));
+    var notes = quantize(data, tempoBpm, bucketsPerMeasure, numMeasures, Key.majorKey(keyName), arrangement);
 
     for (let n of notes) {
         //var startTime = d.start % compostState.loopAfter;
@@ -225,6 +262,7 @@ function playStep(tempoBpm, bucketsPerMeasure, numMeasures, keyName, data) {
 }
 window.compostState.playStep = playStep;
 window.compostState.quantize = quantize;
+window.pl = playStep;
 
 //window.buckets = quantize(169, 16, Key.majorKey("C"), "pentatonic")
 playStep();
