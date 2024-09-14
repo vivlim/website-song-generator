@@ -114,20 +114,20 @@ function stopOsc(osc){
     osc.stop()
 }
 
-function quantize(tempoBpm, bucketsPerMeasure, numMeasures, key){
+function quantize(inputData, tempoBpm, bucketsPerMeasure, numMeasures, key){
     var beatsPerMillisecond = 60000 / tempoBpm;
     var measureDurationMs = beatsPerMillisecond * 4;
     var bucketDurationMs = measureDurationMs / bucketsPerMeasure;
     console.log("Key: " + JSON.stringify(key))
     var buckets = [];
-    for (let i = 0; i < bucketsPerMeasure; i++){
+    for (let i = 0; i < bucketsPerMeasure * numMeasures; i++){
         buckets.push({start: bucketDurationMs * i, items: []});
     }
 
     console.log(`buckets: ${JSON.stringify(buckets)}`);
 
-    for (let d of compostInputData){
-        let wrappedStart = d.start % measureDurationMs;
+    for (let d of inputData){
+        let wrappedStart = d.start % (measureDurationMs * numMeasures);
         let bucketsByDistance = buckets.map((b) => { return {bucket: b, distance: Math.abs(b.start - wrappedStart)}})
             .toSorted((a, b) => { return a.distance - b.distance });
         console.log(`Bucketed ${d.start} -> ${bucketsByDistance[0].bucket.start} (distance: ${bucketsByDistance[0].distance}) ${d.t}`);
@@ -137,7 +137,7 @@ function quantize(tempoBpm, bucketsPerMeasure, numMeasures, key){
     var notes = [];
 
     // process each time bucket one at a time
-    for (let i = 0; i < bucketsPerMeasure; i++){
+    for (let i = 0; i < buckets.length; i++){
         let dataByType = Map.groupBy(buckets[i].items, (d) => d.t );
 
         // nothing at this time.
@@ -159,7 +159,8 @@ function quantize(tempoBpm, bucketsPerMeasure, numMeasures, key){
 
             notes.push({
                 start: buckets[i].start,
-                duration: dataInBucketWithContentType[0].duration * mapping.durationMultiplier % (measureDurationMs/2),
+                //duration: dataInBucketWithContentType[0].duration * mapping.durationMultiplier % (measureDurationMs/2),
+                duration: 120,
                 note: fitNote,
                 sourceData: dataInBucketWithContentType[0],
                 wave: mapping.wave,
@@ -167,10 +168,11 @@ function quantize(tempoBpm, bucketsPerMeasure, numMeasures, key){
 
             if (dataInBucketWithContentType.length > 1) {
                 // find matching chord
-                let chord = key.chords.filter((c) => c[0] === fitNote[0])[0];
-                let chordNotes = Range.numeric([1, dataInBucketWithContentType.length]).map(Chord.steps(chord));
-                console.log(`Matched to chord: ${chord} notes ${JSON.stringify(chordNotes)}`)
-                for (let j = 1; j < chordNotes.length; j++) {
+                let chordName = key.chords.filter((c) => c[0] === fitNote[0])[0];
+                let chordNotes = Chord.notes(chordName, fitNote);
+
+                console.log(`Matched note ${fitNote[0]} to chord: ${chordName} notes ${JSON.stringify(chordNotes)}`)
+                for (let j = 1; j < dataInBucketWithContentType.length; j++) {
                     notes.push({
                         start: buckets[i].start,
                         duration: dataInBucketWithContentType[j].duration * mapping.durationMultiplier % (measureDurationMs/2),
@@ -202,14 +204,19 @@ function quantize(tempoBpm, bucketsPerMeasure, numMeasures, key){
 }
 
 
+function sampleData(dataIn){
+    return dataIn.filter((d) => Math.random() < 0.5);
+}
 
-function playStep(tempoBpm, bucketsPerMeasure, numMeasures, keyName) {
+
+function playStep(tempoBpm, bucketsPerMeasure, numMeasures, keyName, data) {
     if (tempoBpm === undefined) tempoBpm = 129;
     if (bucketsPerMeasure === undefined) bucketsPerMeasure = 16;
     if (numMeasures === undefined) numMeasures = 4;
     if (keyName === undefined) keyName = "C";
+    if (data === undefined) data = sampleData(compostInputData);
     // figure out where they are in time first
-    var notes = quantize(tempoBpm, bucketsPerMeasure, Key.majorKey(keyName));
+    var notes = quantize(data, tempoBpm, bucketsPerMeasure, numMeasures, Key.majorKey(keyName));
 
     for (let n of notes) {
         //var startTime = d.start % compostState.loopAfter;
