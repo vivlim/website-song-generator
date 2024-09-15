@@ -5,24 +5,6 @@ var compostInputData = window.performance.getEntries().map(function(e) {
   return {t: e.contentType, start: e.startTime, duration: e.duration, size: e.transferSize};
 }).filter(function(e){ return 't' in e && e.t !== "" && e.t !== undefined; }).toSorted(function(a, b) {return a.start - b.start});
 
-var audioContext = new AudioContext();
-export var compostState = {
-    current: 0,
-    abort: false,
-    loopAfter: 4000,
-    audioContext: audioContext,
-    oscList:  [],
-    mainGainNode:  audioContext.createGain(),
-    contentTypeOscs: new Map(),
-    scale: Scale.get("c3 pentatonic"),
-    scaleDegrees: Scale.degrees("c4 pentatonic"),
-    inputData: compostInputData,
-}
-compostState.mainGainNode.connect(audioContext.destination);
-compostState.mainGainNode.gain.value = 0.3;
-
-var stepSize = 10
-
 var contentTypeMapping = {
     "default": {
         wave: "square",
@@ -66,6 +48,27 @@ var contentTypeMapping = {
     "text/javascript": {},
     */
 }
+
+
+var audioContext = new AudioContext();
+export var compostState = {
+    current: 0,
+    abort: false,
+    loopAfter: 4000,
+    audioContext: audioContext,
+    oscList:  [],
+    mainGainNode:  audioContext.createGain(),
+    contentTypeOscs: new Map(),
+    scale: Scale.get("c3 pentatonic"),
+    scaleDegrees: Scale.degrees("c4 pentatonic"),
+    inputData: compostInputData,
+    contentTypeMapping: contentTypeMapping,
+}
+compostState.mainGainNode.connect(audioContext.destination);
+compostState.mainGainNode.gain.value = 0.3;
+
+var stepSize = 10
+
 
 function fitNoteToNearest(note, targetNotes){
     let targetNotesWithDistance = targetNotes.map((n) => { return {name: n, distance: Interval.num(Interval.distance(note, n))}})
@@ -151,7 +154,10 @@ function quantize(inputData, tempoBpm, bucketsPerMeasure, numMeasures, key, arra
         let measureNewstart = 0;
         for (let a of arrangement.measureOrder){
             let measure = structuredClone(sourceMeasures[a]);
-            if (measure === undefined){throw new Error(`arrangement requested out of bounds measure ${a} that doesn't exist: ${JSON.stringify(arrangement)}`)}
+            if (measure === undefined){
+                console.log(`arrangement requested out of bounds measure ${a} that doesn't exist: ${JSON.stringify(arrangement)}`)
+                measure = structuredClone(sourceMeasures[a % sourceMeasures.length]);
+            }
             measure.start = measureNewstart;
             measures.push(measure);
             measureNewstart += measureDurationMs;
@@ -175,9 +181,9 @@ function quantize(inputData, tempoBpm, bucketsPerMeasure, numMeasures, key, arra
             if (dataByType.length == 0) continue;
 
             for (let contentType of dataByType.keys()){
-                var mapping = contentTypeMapping[contentType];
+                var mapping = compostState.contentTypeMapping[contentType];
                 if (mapping === null) continue;
-                if (mapping === undefined) mapping = contentTypeMapping["default"];
+                if (mapping === undefined) mapping = compostState.contentTypeMapping["default"];
 
                 let dataInBucketWithContentType = dataByType.get(contentType);
                 if (dataInBucketWithContentType.length == 0) continue;
@@ -257,9 +263,9 @@ export function playStep(tempoBpm, bucketsPerMeasure, numMeasures, keyName, arra
         return;
     }
 
-    if (tempoBpm === undefined) tempoBpm = 80;
-    if (bucketsPerMeasure === undefined) bucketsPerMeasure = 16;
-    if (numMeasures === undefined) numMeasures = 4;
+    if (tempoBpm === undefined) tempoBpm = UI.getBpm();
+    if (bucketsPerMeasure === undefined) bucketsPerMeasure = UI.getQuantizationBuckets();
+    if (numMeasures === undefined) numMeasures = UI.getMeasures();
     if (keyName === undefined) keyName = UI.getCurrentKey();
     if (arrangement === undefined) arrangement = compostState.arrangement;
     if (data === undefined) data = compostInputData;

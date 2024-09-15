@@ -1,8 +1,14 @@
+import * as Player from "./player"
 
 const uiElementId = "compostUiRoot";
 const loopCheckboxId = "compostUiLoopCheckbox"
 const keySelectId = "compostUiKeySelect"
 const progressId = "compostUiProgress"
+const bpmId = "compostUiBpm"
+const measuresId = "compostUiMeasures"
+const quantizationBucketsId = "compostUiQuantizationBuckets"
+const arrangementMeasureOrderId = "compostUiArrangementMeasureOrder"
+const arrangementSampleFactorId = "compostUiArrangementSampleFactor"
 
 export function getUiElement(){
     let ui = window.document.getElementById(uiElementId);
@@ -14,9 +20,40 @@ export function getUiElement(){
     window.document.body.appendChild(ui);
     applyStyleToElement(ui);
 
+    addProgressBar(ui, progressId);
+
     addCheckbox(ui, loopCheckboxId, "play")
     addSelect(ui, keySelectId, "key", ["A","B","C","D","E","F","G"], 3)
-    addProgressBar(ui, progressId);
+    addNumberInput(ui, bpmId, "bpm", 80, 10, 400)
+    addNumberInput(ui, measuresId, "measures", 4, 1, 24)
+    addNumberInput(ui, quantizationBucketsId, "quant. buckets", 16, 2, 64)
+
+    let arrangement = detailsContainer(ui, "arrangement")
+    let trySetFromJson = (source, targetCb) => {
+        try {
+            var value = JSON.parse(source);
+            targetCb(value);
+        }
+        catch {
+            alert(`Failed to set value, '${source.value}' is not a valid object`);
+        }
+    }
+    let arrOrder = addTextInput(arrangement, arrangementMeasureOrderId, "measure order", JSON.stringify(Player.compostState.arrangement.measureOrder));
+    arrOrder.onsubmit = () => {
+        trySetFromJson(arrOrder.value, (val) => Player.compostState.arrangement.measureOrder = val)
+    }
+    let arrSampF = addTextInput(arrangement, arrangementSampleFactorId, "sample factor", JSON.stringify(Player.compostState.arrangement.sampleFactor))
+    arrSampF.onsubmit = () => {
+        trySetFromJson(arrOrder.value, (val) => Player.compostState.arrangement.sampleFactor = val)
+    }
+    ui.appendChild(arrangement);
+    let contentTypeMap = detailsContainer(ui, "content type map")
+    
+    addTextArea(contentTypeMap, JSON.stringify(Player.compostState.contentTypeMapping, null, 2), 5, (text) => {
+        trySetFromJson(text, (val) => Player.compostState.contentTypeMapping = val);
+    })
+    ui.appendChild(contentTypeMap);
+
 
     return ui;
 }
@@ -28,6 +65,21 @@ export function getLoopCheckbox(){
 export function getCurrentKey(){
     var sel = window.document.getElementById(keySelectId);
     return sel.options[sel.selectedIndex].value;
+}
+
+export function getBpm(){
+    var e = window.document.getElementById(bpmId);
+    return parseInt(e.value);
+}
+
+export function getMeasures(){
+    var e = window.document.getElementById(measuresId);
+    return parseInt(e.value);
+}
+
+export function getQuantizationBuckets(){
+    var e = window.document.getElementById(quantizationBucketsId);
+    return parseInt(e.value);
 }
 
 export function getProgressBar(){
@@ -53,6 +105,14 @@ function elementContainer(targetElement){
     return c;
 }
 
+function detailsContainer(targetElement, label){
+    let arrangement = window.document.createElement("details");
+    let arrSummary = window.document.createElement("summary");
+    arrSummary.innerText = label;
+    arrangement.appendChild(arrSummary);
+    return arrangement;
+}
+
 function addCheckbox(targetElement, id, label) {
     targetElement = elementContainer(targetElement);
     let e = window.document.createElement("input");
@@ -63,6 +123,55 @@ function addCheckbox(targetElement, id, label) {
     l.htmlFor = id
     l.innerText = label
     targetElement.appendChild(l)
+    return e;
+}
+
+function addNumberInput(targetElement, id, label, initial, min, max) {
+    targetElement = elementContainer(targetElement);
+    let l = window.document.createElement("label");
+    l.htmlFor = id
+    l.innerText = label
+    targetElement.appendChild(l)
+    let e = window.document.createElement("input");
+    e.type = "number"
+    e.min = min
+    e.max = max
+    e.value = initial
+    e.id = id
+    targetElement.appendChild(e)
+    return e;
+}
+
+function addTextInput(targetElement, id, label, initial) {
+    targetElement = elementContainer(targetElement);
+    let l = window.document.createElement("label");
+    l.htmlFor = id
+    l.innerText = label
+    targetElement.appendChild(l)
+    let e = window.document.createElement("input");
+    e.type = "text"
+    e.value = initial
+    e.id = id
+    targetElement.appendChild(e)
+    return e;
+}
+
+function addTextArea(targetElement, initial, rows, onclick) {
+    targetElement = elementContainer(targetElement);
+    let e = window.document.createElement("textArea");
+    e.rows = rows
+    e.value = initial
+    e.style.width = "100%"
+    targetElement.appendChild(e)
+    let b = window.document.createElement("button");
+    b.innerHTML= "apply";
+    b.classList.add("co-filled-button")
+    b.onclick = () => {
+        console.log("textarea button clicked")
+        onclick(e.value)
+    };
+    targetElement.appendChild(b)
+
     return e;
 }
 
@@ -91,7 +200,7 @@ function addProgressBar(targetElement, id) {
     targetElement = elementContainer(targetElement);
     let outer = window.document.createElement("div");
     outer.id = `${id}_outer`
-    outer.style.width = "6em";
+    outer.style.width = "100%";
     outer.style.background = "#444444";
     targetElement.appendChild(outer)
     let inner = window.document.createElement("div");
