@@ -147,7 +147,7 @@ function quantize(inputData, tempoBpm, bucketsPerMeasure, numMeasures, key, arra
     }
 
     if (arrangement !== undefined){
-        console.log(`rearranging measures to ${JSON.stringify(arrangement)}`)
+        console.log(`rearranging measures to ${JSON.stringify(arrangement)}. measure duration: ${measureDurationMs} and bpm ${tempoBpm}`)
         let sourceMeasures = measures;
         for (let i = 0; i < sourceMeasures.length; i++){
             let measure = sourceMeasures[i];
