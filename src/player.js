@@ -65,7 +65,7 @@ export var compostState = {
     contentTypeMapping: contentTypeMapping,
 }
 compostState.mainGainNode.connect(audioContext.destination);
-compostState.mainGainNode.gain.value = 0.3;
+compostState.mainGainNode.gain.value = 0.2;
 
 var stepSize = 10
 
@@ -84,7 +84,12 @@ function startPlayingNote(n){
     osc.type = n.wave;
     var freq = Note.freq(n.note);
     osc.frequency.value = freq;
-    setTimeout(() => {stopOsc(osc)}, n.duration);
+    let duration = n.duration;
+    if (isNaN(duration)){
+        console.log(`note duration is nan. randomizing it`)
+        duration = Math.random()* 80
+    }
+    setTimeout(() => {stopOsc(osc)}, duration);
     osc.start();
 }
 
@@ -192,11 +197,15 @@ function quantize(inputData, tempoBpm, bucketsPerMeasure, numMeasures, key, arra
                 let unmappedNote = Note.fromFreq(dataInBucketWithContentType[0].size * mapping.sizePitchFactor % mapping.pitchCap);
                 let octave = Note.octave(unmappedNote);
                 let fitNote = fitNoteToNearest(unmappedNote, key.scale.map((n) => `${n}${octave}`))
+                if (fitNote.indexOf("undefined") >= 0){
+                    throw new Error(`Note contains undefined ${fitNote}`) // bleh
+
+                }
                 console.log(`Item size ${dataInBucketWithContentType[0].size} mapped to note ${fitNote} (before fit, was ${unmappedNote}`);
 
                 notes.push({
                     start: realStart,
-                    duration: Math.min(dataInBucketWithContentType[0].duration * mapping.durationMultiplier, (bucketDurationMs/2)),
+                    duration: Math.max(Math.min(dataInBucketWithContentType[0].duration * mapping.durationMultiplier, (bucketDurationMs/2)), measureDurationMs / bucketsPerMeasure),
                     //duration: 120,
                     note: fitNote,
                     sourceData: dataInBucketWithContentType[0],
@@ -212,7 +221,7 @@ function quantize(inputData, tempoBpm, bucketsPerMeasure, numMeasures, key, arra
                     for (let j = 1; j < dataInBucketWithContentType.length; j++) {
                         notes.push({
                             start: realStart,
-                            duration: Math.min(dataInBucketWithContentType[j].duration * mapping.durationMultiplier, (measureDurationMs/2)),
+                            duration: Math.max(Math.min(dataInBucketWithContentType[j].duration * mapping.durationMultiplier, (bucketDurationMs/2)), measureDurationMs / bucketsPerMeasure),
                             note: chordNotes[j],
                             sourceData: dataInBucketWithContentType[j],
                             wave: mapping.wave,

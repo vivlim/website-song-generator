@@ -9,6 +9,31 @@ const measuresId = "compostUiMeasures"
 const quantizationBucketsId = "compostUiQuantizationBuckets"
 const arrangementMeasureOrderId = "compostUiArrangementMeasureOrder"
 const arrangementSampleFactorId = "compostUiArrangementSampleFactor"
+const contentTypeMapId = "compostUiContentTypeMap"
+
+function setDefault(key, value){
+    console.log(`Saving default ${key}: ${value}`)
+    localStorage.setItem(`compost.configuration.${key}`, value);
+}
+
+function removeDefault(key){
+    console.log(`Clearing default ${key}`)
+    localStorage.removeItem(`compost.configuration.${key}`);
+}
+
+function getDefault(key, defaultValue){
+    let valueInStorage = localStorage.getItem(`compost.configuration.${key}`);
+    if (valueInStorage === null){
+        console.log(`local storage doesn't define a default for ${key}.`)
+        return defaultValue;
+    }
+    console.log(`local storage has a default for ${key}: ${valueInStorage}`)
+    return valueInStorage;
+}
+
+const saveDefaultsEvent = new Event("saveDefaults");
+const clearDefaultsEvent = new Event("clearDefaults");
+const uiEvents = new EventTarget();
 
 export function getUiElement(){
     let ui = window.document.getElementById(uiElementId);
@@ -28,28 +53,40 @@ export function getUiElement(){
     addNumberInput(ui, measuresId, "measures", 4, 1, 24)
     addNumberInput(ui, quantizationBucketsId, "quant. buckets", 16, 2, 64)
 
+    addButton(ui, "save defaults", () => {
+        uiEvents.dispatchEvent(new Event("saveDefaults"));
+    });
+    addButton(ui, "reset defaults", () => {
+        uiEvents.dispatchEvent(new Event("clearDefaults"));
+    });
+
     let arrangement = detailsContainer(ui, "arrangement")
     let trySetFromJson = (source, targetCb) => {
         try {
             var value = JSON.parse(source);
             targetCb(value);
+            console.log(`Successfully set value ${value}`)
         }
         catch {
             alert(`Failed to set value, '${source.value}' is not a valid object`);
         }
     }
     let arrOrder = addTextInput(arrangement, arrangementMeasureOrderId, "measure order", JSON.stringify(Player.compostState.arrangement.measureOrder));
-    arrOrder.onsubmit = () => {
-        trySetFromJson(arrOrder.value, (val) => Player.compostState.arrangement.measureOrder = val)
-    }
+    arrOrder.addEventListener("keyup", (ev) => {
+        if (ev.key === "Enter"){
+            trySetFromJson(arrOrder.value, (val) => Player.compostState.arrangement.measureOrder = val)
+        }
+    });
     let arrSampF = addTextInput(arrangement, arrangementSampleFactorId, "sample factor", JSON.stringify(Player.compostState.arrangement.sampleFactor))
-    arrSampF.onsubmit = () => {
-        trySetFromJson(arrOrder.value, (val) => Player.compostState.arrangement.sampleFactor = val)
-    }
+    arrSampF.addEventListener("keyup", (ev) => {
+        if (ev.key === "Enter"){
+            trySetFromJson(arrSampF.value, (val) => Player.compostState.arrangement.sampleFactor = val)
+        }
+    });
     ui.appendChild(arrangement);
     let contentTypeMap = detailsContainer(ui, "content type map")
     
-    addTextArea(contentTypeMap, JSON.stringify(Player.compostState.contentTypeMapping, null, 2), 5, (text) => {
+    addTextArea(contentTypeMap, contentTypeMapId, JSON.stringify(Player.compostState.contentTypeMapping, null, 2), 5, (text) => {
         trySetFromJson(text, (val) => Player.compostState.contentTypeMapping = val);
     })
     ui.appendChild(contentTypeMap);
@@ -93,24 +130,28 @@ function applyStyleToElement(ui){
     ui.style.border = "2px solid #888888"
     ui.style.background = "#111111"
     ui.style.position = "fixed"
-    ui.style.top = "1em"
-    ui.style.left = "30%"
-    ui.style.zIndex = "300"
+    ui.style.top = "4em"
+    ui.style.left = "1em"
+    ui.style.zIndex = 99999999
+}
+function styleFgColor(label){
+    label.style.color = "#ffffff";
+    return label;
 }
 
 function elementContainer(targetElement){
     let c = window.document.createElement("span");
     c.style.margin = "4px";
     targetElement.appendChild(c);
-    return c;
+    return styleFgColor(c);
 }
 
 function detailsContainer(targetElement, label){
     let arrangement = window.document.createElement("details");
     let arrSummary = window.document.createElement("summary");
     arrSummary.innerText = label;
-    arrangement.appendChild(arrSummary);
-    return arrangement;
+    arrangement.appendChild(styleFgColor(arrSummary));
+    return styleFgColor(arrangement);
 }
 
 function addCheckbox(targetElement, id, label) {
@@ -136,9 +177,18 @@ function addNumberInput(targetElement, id, label, initial, min, max) {
     e.type = "number"
     e.min = min
     e.max = max
-    e.value = initial
+    e.value = getDefault(id, initial)
     e.id = id
     targetElement.appendChild(e)
+
+    uiEvents.addEventListener('saveDefaults', () => {
+        setDefault(id, e.value);
+    });
+
+    uiEvents.addEventListener('clearDefaults', () => {
+        removeDefault(id);
+    });
+
     return e;
 }
 
@@ -150,27 +200,52 @@ function addTextInput(targetElement, id, label, initial) {
     targetElement.appendChild(l)
     let e = window.document.createElement("input");
     e.type = "text"
-    e.value = initial
+    e.value = getDefault(id, initial)
     e.id = id
     targetElement.appendChild(e)
+
+
+    uiEvents.addEventListener('saveDefaults', () => {
+        setDefault(id, e.value);
+    });
+
+    uiEvents.addEventListener('clearDefaults', () => {
+        removeDefault(id);
+    });
     return e;
 }
 
-function addTextArea(targetElement, initial, rows, onclick) {
+function addButton(targetElement, label, onclick) {
+    let b = window.document.createElement("button");
+    b.innerHTML= label;
+    b.style.padding = "0.2em"
+    b.style.margin = "0.2em"
+    b.style.background = "#333333"
+    b.style.color = "#DDDDDD"
+    b.onclick = () => {
+        console.log(`button ${label} clicked`)
+        onclick()
+    };
+    targetElement.appendChild(b)
+    return b;
+}
+
+function addTextArea(targetElement, id, initial, rows, onclick) {
     targetElement = elementContainer(targetElement);
     let e = window.document.createElement("textArea");
     e.rows = rows
-    e.value = initial
+    e.value = getDefault(id, initial)
     e.style.width = "100%"
     targetElement.appendChild(e)
-    let b = window.document.createElement("button");
-    b.innerHTML= "apply";
-    b.classList.add("co-filled-button")
-    b.onclick = () => {
-        console.log("textarea button clicked")
-        onclick(e.value)
-    };
-    targetElement.appendChild(b)
+    addButton(targetElement, "apply", () => onclick(e.value));
+
+    uiEvents.addEventListener('saveDefaults', () => {
+        setDefault(id, e.value);
+    });
+
+    uiEvents.addEventListener('clearDefaults', () => {
+        removeDefault(id);
+    });
 
     return e;
 }
@@ -185,6 +260,16 @@ function addSelect(targetElement, id, label, options, initialIndex) {
     let e = window.document.createElement("select");
     e.id = id
     targetElement.appendChild(e)
+
+    initialIndex = getDefault(id, initialIndex)
+
+    uiEvents.addEventListener('saveDefaults', () => {
+        setDefault(id, e.selectedIndex);
+    });
+
+    uiEvents.addEventListener('clearDefaults', () => {
+        removeDefault(id);
+    });
 
     for (let i = 0; i < options.length; i++) {
         let o = window.document.createElement("option");
