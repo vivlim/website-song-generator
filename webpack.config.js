@@ -1,4 +1,5 @@
 module.exports = {
-  mode: 'development',
+  //mode: 'development', // unminified bundle
+  mode: 'production', // minified bundle
   devtool: false,
 };
